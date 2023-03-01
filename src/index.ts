@@ -40,7 +40,7 @@ export class ChomWallet {
     return 'hello'
   }
 
-  private async requestLoginUrl(uxMode: 'popup' | 'redirect'): Promise<string> {
+  private static async  requestLoginUrl(uxMode: 'popup' | 'redirect'): Promise<string> {
     if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
       throw new Error('Client not initialized')
     }
@@ -49,7 +49,7 @@ export class ChomWallet {
     const loginUrl = ''
     return loginUrl
   }
-  async connect(options: CallOptions): Promise<ChomWallet> {
+  static async  connect(options: CallOptions): Promise<ChomWallet> {
     if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
       throw new Error('Client not initialized')
     }
