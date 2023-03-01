@@ -1,0 +1,19 @@
+{
+  "name": "chom-wallet",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChomCHOB/chom-wallet.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ChomCHOB/chom-wallet/issues"
+  },
+  "homepage": "https://github.com/ChomCHOB/chom-wallet#readme"
+}
