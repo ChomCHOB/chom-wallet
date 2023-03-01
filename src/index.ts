@@ -36,10 +36,6 @@ export class ChomWallet {
     this.expiredAt = expiredAt
   }
 
-  greet(): string {
-    return 'hello'
-  }
-
   private static async  requestLoginUrl(uxMode: 'popup' | 'redirect'): Promise<string> {
     if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
       throw new Error('Client not initialized')
