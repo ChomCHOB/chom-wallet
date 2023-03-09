@@ -1,18 +1,21 @@
 import axios from 'axios'
 import jwt from 'jsonwebtoken'
 import Cookies from 'js-cookie'
+import ChomWalletDataTypes from '../src/types'
+import crypto from 'crypto'
 
+// type ConnectParams = {
+//   uxMode: 'popup' | 'redirect',
+//   redirectUrl: string,
+// }
 
-type ConnectParams = {
-  uxMode: 'popup' | 'redirect',
-  redirectUrl: string,
-}
+// type CallOptions = {
+//   ux_mode: 'popup' | 'redirect',
+//   timestamp: number,
+//   signature?: string,
+//   redirect_uri?: string,
+// }
 
-type CallOptions = {
-  ux_mode: 'popup' | 'redirect',
-  signature?: string,
-  redirect_uri?: string,
-}
 
 export class ChomWallet {
   private static CLIENT_ID: string
@@ -42,13 +45,44 @@ export class ChomWallet {
     this.expiredAt = expiredAt
   }
 
-  private static async requestLoginUrl(options: CallOptions): Promise<string> {
+  static getToken() {
+    const algorithm = "aes-256-cbc"
+
+    const initVector = crypto.randomBytes(16)
+
+    const message = "This is a secret message"
+
+    const Securitykey = crypto.randomBytes(32)
+
+  }
+
+  static async getUserInfo(token: string) {
     if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
       throw new Error('Client not initialized')
     }
 
-    const payload: CallOptions = {
-      ux_mode: options.ux_mode
+    try {
+      const response: any = await axios(`${ChomWallet.API_URL}/v1/app/login`, {
+        method: 'GET',
+        headers: {
+          'Authorization': token
+        }
+      })
+
+      return response.data
+    } catch (error: any) {
+      throw new Error(error)
+    }
+  }
+
+  static async requestLogin(options: ChomWalletDataTypes.CallOptions): Promise<string> {
+    if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
+      throw new Error('Client not initialized')
+    }
+
+    const payload: ChomWalletDataTypes.CallOptions = {
+      ux_mode: options.ux_mode,
+      timestamp: new Date().getTime()
     }
 
     if (options.redirect_uri) {
@@ -64,19 +98,30 @@ export class ChomWallet {
       payload.signature = token
     }
 
-    const loginUrl: any = await axios(`${ChomWallet.API_URL}/v1/app/login`, {
-      method: 'GET',
-      headers: {
-        "client-id": ChomWallet.CLIENT_ID,
-        Origin: window.location.hostname
-      },
-      params: payload
-    })
+    try {
+      const response: any = await axios(`${ChomWallet.API_URL}/v1/app/login`, {
+        method: 'GET',
+        headers: {
+          "client-id": ChomWallet.CLIENT_ID,
+          Origin: window.location.hostname
+        },
+        params: payload
+      })
 
-    return loginUrl
+      if (options.ux_mode === 'popup') {
+        window.open(response.data.url, '_blank', 'location=yes,scrollbars=yes,status=yes,width=400,height=400')
+      } else {
+        window.location.href = response.data.url
+      }
+
+      return response.data.url
+
+    } catch(error: any) {
+      throw new Error(error)
+    }
   }
 
-  static async connect(options: CallOptions): Promise<ChomWallet> {
+  static async connect(options: ChomWalletDataTypes.CallOptions): Promise<ChomWallet> {
     if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
       throw new Error('Client not initialized')
     }
@@ -107,24 +152,24 @@ export class ChomWallet {
     if (accessToken) {
       return new ChomWallet('', '', '', 0)
     } else {
-      const loginUrl = await this.requestLoginUrl(options)
+      const loginUrl = await this.requestLogin(options)
 
       if (loginUrl && options.ux_mode === 'popup') {
-        window.open(loginUrl, '_blank', 'location=yes,scrollbars=yes,status=yes,width=400,height=400')
+        window.open(loginUrl, '_blank', 'location=yes,scrollbars=yes,status=yes,width=500,height=400')
       } else {
         window.location.href = loginUrl
       }
+
       return new ChomWallet('', '', '', 0)
     }
   }
 
   
-
-  async signMessage(msg: string, options: CallOptions): Promise<string> {
+  async signMessage(msg: string, options: ChomWalletDataTypes.CallOptions): Promise<string> {
     return 'sig'
   }
 
-  async signTypedData(options: CallOptions): Promise<string> {
+  async signTypedData(options: ChomWalletDataTypes.CallOptions): Promise<string> {
     return 'sig'
   }
 
