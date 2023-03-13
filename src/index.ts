@@ -47,6 +47,11 @@ export class ChomWallet {
     accessToken: string,
     expiredAt: number
   ) {
+    document.addEventListener('message', (event: any) =>{
+      if (event.data.token) {
+        alert('ok')
+      }
+    })
     this.address = address
     this.accountId = accountId
     this.accessToken = accessToken
@@ -183,8 +188,7 @@ export class ChomWallet {
   ): Promise<string> {
     return "sig"
   }
-
-  async encrypData(token: string): Promise<string> {
+  async encryptData(data: any): Promise<string> {
     const algorithm: string = "aes-256-cbc"
     const initVector: Buffer = crypto.randomBytes(16)
     const Securitykey: any = crypto.randomBytes(32)
@@ -193,13 +197,13 @@ export class ChomWallet {
       Securitykey,
       initVector
     )
-    let encryptedData: string = cipher.update(token, "utf-8", "hex")
+    let encryptedData: string = cipher.update(data, "utf-8", "hex")
     encryptedData += cipher.final("hex")
 
     return encryptedData
   }
 
-  async decrypData(token: string): Promise<string> {
+  async decryptData(data: any): Promise<string> {
     const algorithm: string = "aes-256-cbc"
     const initVector: Buffer = crypto.randomBytes(16)
     const Securitykey: any = crypto.randomBytes(32)
@@ -208,9 +212,29 @@ export class ChomWallet {
       Securitykey,
       initVector
     )
-    let decryptedData: string = decipher.update(token, "hex", "utf-8")
+    let decryptedData: string = decipher.update(data, "hex", "utf-8")
     decryptedData += decipher.final("utf8")
 
     return decryptedData
+  }
+
+  async setTokentoStorage(token: string) {
+    const dataEncrypt: string = await this.encryptData(token)
+    Cookies.set('t', dataEncrypt)
+  }
+
+  async getTokenFromStorage(token: string): Promise<string | null> {
+    const dataDecrypt: string = await this.decryptData(token)
+    const base64Url: string = dataDecrypt.split('.')[1]
+    const base64: string = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const jsonPayload: string = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    }).join(''))
+    const jsonData = JSON.parse(jsonPayload)
+    if (jsonData.exp > new Date().getTime()) {
+      return dataDecrypt
+    } else {
+      return null
+    }
   }
 }
