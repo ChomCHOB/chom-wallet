@@ -2,7 +2,7 @@ import axios from "axios"
 import jwt from "jsonwebtoken"
 import Cookies from "js-cookie"
 import ChomWalletDataTypes from "../src/types"
-import crypto from "crypto"
+import CryptoJS from "crypto-js"
 
 // type ConnectParams = {
 //   uxMode: 'popup' | 'redirect',
@@ -47,9 +47,17 @@ export class ChomWallet {
     accessToken: string,
     expiredAt: number
   ) {
-    document.addEventListener('message', (event: any) =>{
+    var urlParams = new URL(window.location.href);
+    var token = urlParams.searchParams.get('token');
+    if (token) {
+      this.accessToken = token
+      this.setTokentoStorage(token)
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+    document.addEventListener('token', (event: any) =>{
       if (event.data.token) {
-        alert('ok')
+        this.accessToken = event.data.token
+        this.setTokentoStorage(event.data.token)
       }
     })
     this.address = address
@@ -135,30 +143,9 @@ export class ChomWallet {
       throw new Error("Client not initialized")
     }
 
-    // if (options.uxMode === 'popup') {
-    //   const loginUrl = await this.requestLoginUrl(options.uxMode)
-
-    //   // todo: open login in popup and listening access_token
-    //   const { accessToken, expiredAt } = { accessToken: '', expiredAt: 100000 }
-
-    //   // todo: query user profile
-    //   const { address, accountId } = { address: '', accountId: '' }
-
-    //   return new ChomWallet(address, accountId, accessToken, expiredAt)
-    // } else {
-    //   // todo: redirect flow
-    //   return new ChomWallet('', '', '', 0)
-    // }
-
-    // if () {
-    //   return new ChomWallet('', '', '', 0)
-    // } else {
-    //   return new ChomWallet('', '', '', 0)
-    // }
-
-    const accessToken: string = Cookies.get("u_info") || ""
+    const accessToken: string | null = await this.getTokenFromStorage()
     if (accessToken) {
-      return new ChomWallet("", "", "", 0)
+      return new ChomWallet("test", "test", "test", 0)
     } else {
       const loginUrl = await this.requestLogin(options)
 
@@ -188,33 +175,16 @@ export class ChomWallet {
   ): Promise<string> {
     return "sig"
   }
-  async encryptData(data: any): Promise<string> {
-    const algorithm: string = "aes-256-cbc"
-    const initVector: Buffer = crypto.randomBytes(16)
-    const Securitykey: any = crypto.randomBytes(32)
-    const cipher: crypto.Cipher = crypto.createCipheriv(
-      algorithm,
-      Securitykey,
-      initVector
-    )
-    let encryptedData: string = cipher.update(data, "utf-8", "hex")
-    encryptedData += cipher.final("hex")
 
+  async encryptData(data: any): Promise<string> {
+    let encryptedData: string = CryptoJS.AES.encrypt(data, ChomWallet.CLIENT_SECRET).toString()
     return encryptedData
   }
 
-  async decryptData(data: any): Promise<string> {
-    const algorithm: string = "aes-256-cbc"
-    const initVector: Buffer = crypto.randomBytes(16)
-    const Securitykey: any = crypto.randomBytes(32)
-    const decipher: crypto.Cipher = crypto.createDecipheriv(
-      algorithm,
-      Securitykey,
-      initVector
+  private static async decryptData(data: any): Promise<string> {
+    let decryptedData: string = CryptoJS.AES.decrypt(data, ChomWallet.CLIENT_SECRET).toString(
+      CryptoJS.enc.Utf8
     )
-    let decryptedData: string = decipher.update(data, "hex", "utf-8")
-    decryptedData += decipher.final("utf8")
-
     return decryptedData
   }
 
@@ -223,16 +193,21 @@ export class ChomWallet {
     Cookies.set('t', dataEncrypt)
   }
 
-  async getTokenFromStorage(token: string): Promise<string | null> {
-    const dataDecrypt: string = await this.decryptData(token)
-    const base64Url: string = dataDecrypt.split('.')[1]
-    const base64: string = base64Url.replace(/-/g, '+').replace(/_/g, '/')
-    const jsonPayload: string = decodeURIComponent(window.atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-    }).join(''))
-    const jsonData = JSON.parse(jsonPayload)
-    if (jsonData.exp > new Date().getTime()) {
-      return dataDecrypt
+  private static async getTokenFromStorage(): Promise<string | null> {
+    const tokenFromStorage: string | undefined = Cookies.get('t')
+    if (tokenFromStorage) {
+      const dataDecrypt: string = await this.decryptData(tokenFromStorage)
+      const base64Url: string = dataDecrypt.split('.')[1]
+      const base64: string = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+      const jsonPayload: string = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+      }).join(''))
+      const jsonData = JSON.parse(jsonPayload)
+      if (jsonData.exp > new Date().getTime()) {
+        return dataDecrypt
+      } else {
+        return null
+      }
     } else {
       return null
     }
