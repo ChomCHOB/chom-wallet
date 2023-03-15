@@ -1,30 +1,16 @@
 import axios from "axios"
-import jwt from "jsonwebtoken"
 import Cookies from "js-cookie"
 import ChomWalletDataTypes from "../src/types"
 import CryptoJS from "crypto-js"
-
-// type ConnectParams = {
-//   uxMode: 'popup' | 'redirect',
-//   redirectUrl: string,
-// }
-
-// type CallOptions = {
-//   ux_mode: 'popup' | 'redirect',
-//   timestamp: number,
-//   signature?: string,
-//   redirect_uri?: string,
-// }
+import * as jose from 'jose'
 
 export class ChomWallet {
   private static CLIENT_ID: string
   private static CLIENT_SECRET: string
   private static API_URL: string
 
-  public address: string
+  public address: Array<{[key: string]: any}>
   public accountId: string
-  private accessToken: string
-  private expiredAt: number
 
   static init(
     clientId: string,
@@ -33,59 +19,57 @@ export class ChomWallet {
   ): void {
     ChomWallet.CLIENT_ID = clientId
     ChomWallet.CLIENT_SECRET = clientSecret
-
+    
     if (env === "prod") {
-      ChomWallet.API_URL = "https://chom-walet.chomchob.com"
+      ChomWallet.API_URL = "https://chom-wallet.chomchob.com"
     } else {
-      ChomWallet.API_URL = "https://dev-chom-walet.chomchob.com"
+      ChomWallet.API_URL = "https://dev-chom-wallet.chomchob.com"
     }
-  }
 
-  constructor(
-    address: string,
-    accountId: string,
-    accessToken: string,
-    expiredAt: number
-  ) {
-    var urlParams = new URL(window.location.href);
-    var token = urlParams.searchParams.get('token');
+    const urlParams: URL = new URL(window.location.href);
+    var token: string | null = urlParams.searchParams.get('cw_tk');
+    
     if (token) {
-      this.accessToken = token
       this.setTokentoStorage(token)
       window.history.replaceState({}, document.title, window.location.pathname)
     }
-    document.addEventListener('token', (event: any) =>{
+
+    window.addEventListener('cw_tk', (event: any) =>{
       if (event.data.token) {
-        this.accessToken = event.data.token
         this.setTokentoStorage(event.data.token)
       }
     })
-    this.address = address
-    this.accountId = accountId
-    this.accessToken = accessToken
-    this.expiredAt = expiredAt
   }
 
-  static async getUserInfo(token: string) {
-    if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
+  constructor(
+    address: Array<{[key: string]: any}>,
+    accountId: string,
+  ) {
+    this.address = address
+    this.accountId = accountId
+  }
+
+  static async getUserInfo() {
+    const accessToken: string | null = await this.getTokenFromStorage()
+    if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET || !accessToken) {
       throw new Error("Client not initialized")
     }
-
+    const deviceId = await this.getDeviceId()
     try {
-      const response: any = await axios(`${ChomWallet.API_URL}/v1/app/login`, {
-        method: "GET",
+      const response = await axios(`${ChomWallet.API_URL}/v1/app/login`, {
+        method: 'GET',
         headers: {
-          Authorization: token
+          'Authorization': accessToken,
+          'device-id': deviceId
         }
       })
-
-      return response.data
+      return new ChomWallet(response.data.account_id, response.data.wallet_list)
     } catch (error: any) {
       throw new Error(error)
     }
   }
 
-  static async requestLogin(
+  static async connect(
     options: ChomWalletDataTypes.CallOptions
   ): Promise<string> {
     if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
@@ -101,10 +85,15 @@ export class ChomWallet {
       payload.redirect_uri = options.redirect_uri
     }
 
-    const token: string = jwt.sign(payload, ChomWallet.CLIENT_SECRET, {
-      algorithm: "HS512",
-      noTimestamp: true
-    })
+    const secret = new TextEncoder().encode(
+      ChomWallet.CLIENT_SECRET
+    )
+    const alg = 'HS512'
+    const typ = 'JWT'
+
+    const token: string = await new jose.SignJWT({ ...payload })
+    .setProtectedHeader({ alg, typ })
+    .sign(secret)
 
     if (token) {
       payload.signature = token
@@ -114,10 +103,48 @@ export class ChomWallet {
       const response: any = await axios(`${ChomWallet.API_URL}/v1/app/login`, {
         method: "GET",
         headers: {
-          "client-id": ChomWallet.CLIENT_ID,
-          Origin: window.location.hostname
+          'client-id': ChomWallet.CLIENT_ID
         },
         params: payload
+      })
+      
+      if (options.ux_mode === "popup") {
+        window.open(
+          response.data.url,
+          "_blank",
+          "location=yes,scrollbars=yes,status=yes,width=400,height=400"
+        )
+      } else {
+        window.location.href = response.data.url
+      }
+
+      return response.data.url
+    } catch (error: any) {
+      throw new Error(error)
+    }
+  }
+
+  static async signMessage(
+    options: ChomWalletDataTypes.SignMessageParams
+  ): Promise<string> {
+    const accessToken: string | null = await this.getTokenFromStorage()
+    if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET || !accessToken) {
+      throw new Error("Client not initialized")
+    }
+    const deviceId = await this.getDeviceId()
+
+    if (options.ux_mode === 'popup') {
+      delete options.redirect_uri
+    }
+
+    try {
+      const response: any = await axios(`${ChomWallet.API_URL}/v1/app/sign/message`, {
+        method: "POST",
+        headers: {
+          'Authorization': accessToken,
+          'device-id': deviceId
+        },
+        data: options
       })
 
       if (options.ux_mode === "popup") {
@@ -136,47 +163,85 @@ export class ChomWallet {
     }
   }
 
-  static async connect(
-    options: ChomWalletDataTypes.CallOptions
-  ): Promise<ChomWallet> {
-    if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET) {
+  static async signTypedData(
+    options: ChomWalletDataTypes.SignTypedParams
+  ): Promise<string> {
+    const accessToken: string | null = await this.getTokenFromStorage()
+    if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET || !accessToken) {
       throw new Error("Client not initialized")
     }
+    const deviceId = await this.getDeviceId()
 
-    const accessToken: string | null = await this.getTokenFromStorage()
-    if (accessToken) {
-      return new ChomWallet("test", "test", "test", 0)
-    } else {
-      const loginUrl = await this.requestLogin(options)
+    if (options.ux_mode === 'popup') {
+      delete options.redirect_uri
+    }
 
-      if (loginUrl && options.ux_mode === "popup") {
+    try {
+      const response: any = await axios(`${ChomWallet.API_URL}/v1/app/request/sign/typed-data`, {
+        method: "POST",
+        headers: {
+          'Authorization': accessToken,
+          'device-id': deviceId
+        },
+        data: options
+      })
+
+      if (options.ux_mode === "popup") {
         window.open(
-          loginUrl,
+          response.data.url,
           "_blank",
-          "location=yes,scrollbars=yes,status=yes,width=500,height=400"
+          "location=yes,scrollbars=yes,status=yes,width=400,height=400"
         )
       } else {
-        window.location.href = loginUrl
+        window.location.href = response.data.url
       }
 
-      return new ChomWallet("", "", "", 0)
+      return response.data.url
+    } catch (error: any) {
+      throw new Error(error)
     }
   }
 
-  async signMessage(
-    msg: string,
-    options: ChomWalletDataTypes.CallOptions
+  static async signTransaction(
+    options: ChomWalletDataTypes.SignTransactionParams
   ): Promise<string> {
-    return "sig"
+    const accessToken: string | null = await this.getTokenFromStorage()
+    if (!ChomWallet.CLIENT_ID || !ChomWallet.CLIENT_SECRET || !accessToken) {
+      throw new Error("Client not initialized")
+    }
+    const deviceId = await this.getDeviceId()
+
+    if (options.ux_mode === 'popup') {
+      delete options.redirect_uri
+    }
+
+    try {
+      const response: any = await axios(`${ChomWallet.API_URL}/v1/app/request/sign/typed-data`, {
+        method: "POST",
+        headers: {
+          'Authorization': accessToken,
+          'device-id': deviceId
+        },
+        data: options
+      })
+
+      if (options.ux_mode === "popup") {
+        window.open(
+          response.data.url,
+          "_blank",
+          "location=yes,scrollbars=yes,status=yes,width=400,height=400"
+        )
+      } else {
+        window.location.href = response.data.url
+      }
+
+      return response.data.url
+    } catch (error: any) {
+      throw new Error(error)
+    }
   }
 
-  async signTypedData(
-    options: ChomWalletDataTypes.CallOptions
-  ): Promise<string> {
-    return "sig"
-  }
-
-  async encryptData(data: any): Promise<string> {
+  private static async encryptData(data: any): Promise<string> {
     let encryptedData: string = CryptoJS.AES.encrypt(data, ChomWallet.CLIENT_SECRET).toString()
     return encryptedData
   }
@@ -188,9 +253,10 @@ export class ChomWallet {
     return decryptedData
   }
 
-  async setTokentoStorage(token: string) {
+  private static async setTokentoStorage(token: string) {
+    alert('token')
     const dataEncrypt: string = await this.encryptData(token)
-    Cookies.set('t', dataEncrypt)
+    Cookies.set('cw_tk', dataEncrypt)
   }
 
   private static async getTokenFromStorage(): Promise<string | null> {
@@ -211,5 +277,11 @@ export class ChomWallet {
     } else {
       return null
     }
+  }
+
+  private static async getDeviceId(): Promise<string> {
+    return (`${1e7}-${1e3}-${4e3}-${8e3}-${1e11}`).replace(/[018]/g, (c: any) =>
+        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    )
   }
 }
